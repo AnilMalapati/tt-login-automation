@@ -30,4 +30,4 @@ jobs:
         env:
           TRADETRON_EMAIL: ${{ secrets.TRADETRON_EMAIL }}
           TRADETRON_PASSWORD: ${{ secrets.TRADETRON_PASSWORD }}
-        run: python kotakneo_autologin.py
+        run: python kotakneo_autologin.py --force
