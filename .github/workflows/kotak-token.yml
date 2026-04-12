@@ -1,0 +1,37 @@
+name: Kotak Neo V3 Token Regeneration
+
+on:
+  schedule:
+    # 3:00 AM UTC = 8:30 AM IST, weekdays (Mon–Fri)
+    - cron: '0 3 * * 1-5'
+  workflow_dispatch: # allows manual trigger from GitHub UI
+
+jobs:
+  regenerate-token:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update -q
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Regenerate Kotak Neo V3 token
+        env:
+          TRADETRON_EMAIL: ${{ secrets.TRADETRON_EMAIL }}
+          TRADETRON_PASSWORD: ${{ secrets.TRADETRON_PASSWORD }}
+        run: python kotakneo_autologin.py
