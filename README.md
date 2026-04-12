@@ -10,8 +10,8 @@ Runs automatically at **8:30 AM IST every weekday** via GitHub Actions (free).
 
 1. Opens Chrome (headless) and navigates to `https://tradetron.tech/login`
 2. Fills in email + password, solves the ALTCHA captcha automatically
-3. Visits `https://tradetron.tech/user/broker-and-exchanges/regenerate-token/917`
-4. Tradetron regenerates the Kotak Neo V3 token and redirects to the dashboard
+3. Visits your `REGEN_TOKEN_URL` (e.g. `.../regenerate-token/YOUR_BROKER_ID`)
+4. Tradetron regenerates the broker token and redirects to the dashboard
 
 ---
 
@@ -91,13 +91,12 @@ Edit `.env` (copy from `env.example`):
 ```env
 TRADETRON_EMAIL=you@example.com
 TRADETRON_PASSWORD=yourpassword
+REGEN_TOKEN_URL=https://tradetron.tech/user/broker-and-exchanges/regenerate-token/YOUR_BROKER_ID
 ```
 
-Optional overrides (defaults work for most users):
+Optional:
 
 ```env
-TRADETRON_LOGIN_URL=https://tradetron.tech/login
-REGEN_TOKEN_URL=https://tradetron.tech/user/broker-and-exchanges/regenerate-token/917
 CHROME_BINARY=/path/to/chrome   # only needed if Chrome isn't in the default location
 ```
 
@@ -110,7 +109,7 @@ CHROME_BINARY=/path/to/chrome   # only needed if Chrome isn't in the default loc
 | `ModuleNotFoundError` | Run `pip install -r requirements.txt` inside your venv |
 | `SessionNotCreatedException` | `webdriver-manager` auto-downloads the right ChromeDriver — ensure it's in `requirements.txt` |
 | Login fails | Run `--headed` locally to watch the browser and check for UI changes |
-| Token not regenerated | Verify the `REGEN_TOKEN_URL` ends with your broker's correct ID (917 for Kotak Neo V3) |
+| Token not regenerated | Verify `REGEN_TOKEN_URL` is set correctly — find it by clicking **Renew** on the Brokers & Exchanges page and copying the URL |
 | Weekend skip message | Use `--force` flag to bypass the weekday check during testing |
 
 ---
