@@ -33,7 +33,6 @@ from selenium.webdriver.common.action_chains import ActionChains
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
 LOGIN_URL          = "https://tradetron.tech/login"
-REGEN_TOKEN_URL    = "https://tradetron.tech/user/broker-and-exchanges/regenerate-token/917"
 
 
 def log(msg):
@@ -69,11 +68,16 @@ def build_driver(headless=True):
 def run(headless=True):
     load_dotenv(os.path.join(_HERE, ".env"))
 
-    email    = os.getenv("TRADETRON_EMAIL", "").strip()
-    password = os.getenv("TRADETRON_PASSWORD", "").strip()
+    email          = os.getenv("TRADETRON_EMAIL", "").strip()
+    password       = os.getenv("TRADETRON_PASSWORD", "").strip()
+    regen_token_url = os.getenv("REGEN_TOKEN_URL", "").strip()
 
     if not email or not password:
         log("ERROR: Set TRADETRON_EMAIL and TRADETRON_PASSWORD in .env")
+        return False
+
+    if not regen_token_url:
+        log("ERROR: Set REGEN_TOKEN_URL in .env  (e.g. https://tradetron.tech/user/broker-and-exchanges/regenerate-token/917)")
         return False
 
     driver = build_driver(headless)
@@ -187,8 +191,8 @@ def run(headless=True):
         log(f"✔ Logged in — {driver.current_url}")
 
         # ── Step 2: Hit the regenerate-token URL ───────────────────────────────
-        log(f"Opening: {REGEN_TOKEN_URL}")
-        driver.get(REGEN_TOKEN_URL)
+        log(f"Opening: {regen_token_url}")
+        driver.get(regen_token_url)
         time.sleep(3)
 
         log(f"✔ Done — final URL: {driver.current_url}")

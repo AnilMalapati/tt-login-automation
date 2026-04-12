@@ -37,8 +37,17 @@ Add these two secrets:
 |----------------------|------------------------------|
 | `TRADETRON_EMAIL`    | your Tradetron login email   |
 | `TRADETRON_PASSWORD` | your Tradetron password      |
+| `REGEN_TOKEN_URL`    | your broker's regenerate-token URL (see below) |
 
 > Your credentials are encrypted and never exposed in logs.
+
+**How to find your `REGEN_TOKEN_URL`:**
+1. Log into [tradetron.tech](https://tradetron.tech)
+2. Go to **Brokers & Exchanges**
+3. Click the **Renew** button next to your broker
+4. Copy the URL from your browser's address bar — it looks like:  
+   `https://tradetron.tech/user/broker-and-exchanges/regenerate-token/917`  
+   The number at the end is unique to your account.
 
 ### 3. Enable GitHub Actions
 

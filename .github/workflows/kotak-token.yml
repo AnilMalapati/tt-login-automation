@@ -30,4 +30,5 @@ jobs:
         env:
           TRADETRON_EMAIL: ${{ secrets.TRADETRON_EMAIL }}
           TRADETRON_PASSWORD: ${{ secrets.TRADETRON_PASSWORD }}
+          REGEN_TOKEN_URL: ${{ secrets.REGEN_TOKEN_URL }}
         run: python kotakneo_autologin.py --force
