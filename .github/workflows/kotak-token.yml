@@ -2,8 +2,8 @@ name: Kotak Neo V3 Token Regeneration
 
 on:
   schedule:
-    # 3:00 AM UTC = 8:30 AM IST, weekdays (Mon–Fri)
-    - cron: '0 3 * * 1-5'
+    # 3:15 AM UTC = 8:45 AM IST, weekdays (Mon–Fri)
+    - cron: '15 3 * * 1-5'
   workflow_dispatch: # allows manual trigger from GitHub UI
 
 jobs:
