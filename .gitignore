@@ -5,4 +5,6 @@ __pycache__/
 venv/
 debug.png
 last_run.png
+retry_last_run.png
+retry_debug.png
 autologin.py

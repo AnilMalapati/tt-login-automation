@@ -1,0 +1,36 @@
+name: Tradetron Error-Execution Auto-Retry
+
+on:
+  schedule:
+    # Every 10 min, 3:30 AM – 10:00 AM UTC (9:00 AM – 3:30 PM IST), weekdays
+    - cron: '*/10 4-9 * * 1-5'
+    - cron: '30-59/10 3 * * 1-5'   # 3:30, 3:40, 3:50 AM UTC (9:00–9:20 AM IST)
+  workflow_dispatch: # manual trigger
+
+jobs:
+  retry-errors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Chrome + ChromeDriver
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run error retry script
+        env:
+          TRADETRON_EMAIL: ${{ secrets.TRADETRON_EMAIL }}
+          TRADETRON_PASSWORD: ${{ secrets.TRADETRON_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python tradetron_error_retry.py --force

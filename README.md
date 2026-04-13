@@ -134,6 +134,56 @@ CHROME_BINARY=/path/to/chrome   # only needed if Chrome is not in the default lo
 
 ---
 
+---
+
+## Error-Execution Auto-Retry
+
+A second script (`tradetron_error_retry.py`) scans your deployed strategies every 10 minutes during market hours. If any strategy is in **Error-Execution** state, it automatically clicks **Manage → Proceed (Try Again)** and sends you a **Telegram notification**.
+
+### How it works
+
+1. Runs every 10 min between **9:00 AM – 3:30 PM IST** on weekdays
+2. Logs into Tradetron and checks the deployed strategies page
+3. Finds any strategy with `Error-Execution` status
+4. Clicks **Manage** → **Proceed**
+5. Sends a Telegram message: `⚠️ Strategy XYZ was retried at 10:32 AM IST`
+
+### Telegram Setup
+
+**Step 1 – Create a bot:**
+1. Open Telegram → search **@BotFather**
+2. Send `/newbot` → choose a name → copy the **token**
+
+**Step 2 – Get your Chat ID:**
+1. Message **@userinfobot** on Telegram
+2. It replies with your **Chat ID** number
+
+**Step 3 – Add as GitHub Secrets:**
+
+| Secret name          | Value |
+|----------------------|-------|
+| `TELEGRAM_BOT_TOKEN` | token from BotFather |
+| `TELEGRAM_CHAT_ID`   | your chat ID number |
+
+### Run locally
+
+```bash
+python tradetron_error_retry.py           # market hours only
+python tradetron_error_retry.py --force   # bypass market hours (for testing)
+python tradetron_error_retry.py --headed  # show browser window
+```
+
+### Schedule via cron-job.org
+
+Same as the token renewal — create a second cronjob on [cron-job.org](https://cron-job.org) that triggers the `error-retry.yml` workflow every 10 minutes between 9 AM – 3:30 PM IST on weekdays.
+
+URL:
+```
+https://api.github.com/repos/YOUR_USERNAME/tt-login-automation/actions/workflows/error-retry.yml/dispatches
+```
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
