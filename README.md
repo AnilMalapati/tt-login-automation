@@ -175,12 +175,27 @@ python tradetron_error_retry.py --headed  # show browser window
 
 ### Schedule via cron-job.org
 
-Same as the token renewal — create a second cronjob on [cron-job.org](https://cron-job.org) that triggers the `error-retry.yml` workflow every 10 minutes between 9 AM – 3:30 PM IST on weekdays.
+> The error-retry workflow has **no GitHub `schedule:` trigger** — it relies entirely on cron-job.org for triggering. Without the cron-job.org setup below, the script will only run if you click **Run workflow** manually.
 
-URL:
-```
-https://api.github.com/repos/YOUR_USERNAME/tt-login-automation/actions/workflows/error-retry.yml/dispatches
-```
+Create a second cronjob on [cron-job.org](https://cron-job.org) (in addition to the Kotak token one from Step 5):
+
+1. **CREATE CRONJOB**
+2. Fill in:
+   - **Title:** `Tradetron Error-Retry`
+   - **URL:** `https://api.github.com/repos/YOUR_USERNAME/tt-login-automation/actions/workflows/error-retry.yml/dispatches`
+     *(replace `YOUR_USERNAME`)*
+   - **Method:** `POST`
+   - **Request body:** `{"ref":"main"}`
+3. Under **Schedule:**
+   - Timezone: `Asia/Calcutta`
+   - Time: `Every 1 minute` between `09:00` and `15:30`
+   - Days: tick **Mon, Tue, Wed, Thu, Fri** only
+4. Under **Headers** add 2 entries (reuse the same GitHub PAT from Step 5):
+   - `Authorization` → `Bearer YOUR_GITHUB_TOKEN`
+   - `Content-Type` → `application/json`
+5. Click **Save** → **Enable**
+
+Worst-case detection delay = 1 min from the moment a strategy enters Error-Execution. GitHub Actions minutes are unlimited on public repos, so per-minute cadence is free.
 
 ---
 

@@ -1,16 +1,12 @@
 name: Tradetron Error-Execution Auto-Retry
 
 on:
-  schedule:
-    # Every 1 min, 3:30 AM – 10:00 AM UTC (9:00 AM – 3:30 PM IST), weekdays.
-    # GitHub Actions minutes are unlimited on public repos, so this is free.
-    #
-    # NOTE: GitHub's hosted scheduler often delays cron jobs by 15-60 min
-    # during peak load. For reliable per-minute cadence, configure cron-job.org
-    # to POST to this workflow's dispatches endpoint (see README).
-    - cron: '* 4-9 * * 1-5'
-    - cron: '30-59 3 * * 1-5'
-  workflow_dispatch: # manual trigger
+  # Triggered externally by cron-job.org every 1 min during IST market hours.
+  # GitHub's hosted cron is intentionally NOT used here — it's unreliable on
+  # the free tier (15-60 min delays during peak load), and we'd just get
+  # duplicate runs alongside cron-job.org. See README "Schedule via
+  # cron-job.org" for the exact dispatch recipe.
+  workflow_dispatch:
 
 jobs:
   retry-errors:
