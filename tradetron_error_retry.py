@@ -313,20 +313,29 @@ def _goto_page(driver, page_num):
         return False
 
 
-def _find_first_error_link_across_pages(driver, max_pages=10):
+def _find_first_error_link_across_pages(driver, skip_names=None, max_pages=10):
     """Start at page 1 of deployed strategies, scan each page in order, and
-    return the first Error-Execution Manage link found (or None)."""
+    return the first (manage_link, strategy_name) whose name is NOT in
+    `skip_names`. Returns (None, None) if no eligible link is found.
+
+    Passing `skip_names` lets the caller dedupe strategies that have already
+    been attempted in this run, so a flapping strategy doesn't block others
+    behind it in the queue."""
+    skip_names = skip_names or set()
     driver.get(DEPLOYED_URL)
     time.sleep(4)
 
     for page in range(1, max_pages + 1):
-        links = _find_error_manage_links(driver)
-        if links:
-            log(f"   Found Error-Execution on page {page}.")
-            return links[0]
+        for link in _find_error_manage_links(driver):
+            name = _strategy_name_near_manage_link(driver, link)
+            name_key = name or "Unknown Strategy"
+            if name_key in skip_names:
+                continue
+            log(f"   Found Error-Execution on page {page}: {name or '(unnamed)'}")
+            return link, name
         if not _goto_page(driver, page + 1):
-            return None
-    return None
+            return None, None
+    return None, None
 
 
 def retry_error_strategies(driver, wait):
@@ -337,31 +346,40 @@ def retry_error_strategies(driver, wait):
 
     retried = []
     failed = []
-    attempted = set()  # avoid infinite loop if a retry is rejected server-side
+    attempted = set()  # strategies we've already tried this run (success or fail)
     MAX_ITER = 25
 
     for _ in range(MAX_ITER):
-        manage_link = _find_first_error_link_across_pages(driver)
+        manage_link, pre_click_name = _find_first_error_link_across_pages(
+            driver, skip_names=attempted
+        )
         if manage_link is None:
-            log("   No Error-Execution strategies found.")
+            if attempted:
+                log("   No more Error-Execution strategies to retry this run.")
+            else:
+                log("   No Error-Execution strategies found.")
             break
+
+        # Reserve this strategy in `attempted` BEFORE we touch it — so even if
+        # the click/modal/retry path raises, we won't pick the same one again
+        # this run. The next cron tick will revisit anything still in error.
+        name_for_skip = pre_click_name or "Unknown Strategy"
+        attempted.add(name_for_skip)
 
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", manage_link)
         time.sleep(0.5)
-
-        # Capture the strategy name from the deployed-strategies row BEFORE
-        # clicking — the title link in the same card is the most reliable source.
-        pre_click_name = _strategy_name_near_manage_link(driver, manage_link)
 
         try:
             manage_link.click()
         except UnexpectedAlertPresentException:
             alert_text = _drain_alert(driver) or "(no text)"
-            log(f"   Alert on Manage click: {alert_text}")
-            failed.append((pre_click_name or "Unknown Strategy", alert_text))
-            break
+            log(f"   ✖ Alert on Manage click for '{name_for_skip}': {alert_text}")
+            failed.append((name_for_skip, alert_text))
+            if "market is closed" in alert_text.lower():
+                log("   Market is closed — stopping further retries.")
+                break
+            continue
 
-        # Wait for the Manage Positions modal (Proceed button) to appear
         try:
             proceed_btn = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable(
@@ -369,21 +387,17 @@ def retry_error_strategies(driver, wait):
                 )
             )
         except TimeoutException:
-            log("   Manage Positions modal did not appear; skipping.")
-            failed.append((pre_click_name or "Unknown Strategy", "modal did not open"))
+            log(f"   ✖ Manage Positions modal did not appear for '{name_for_skip}'.")
+            failed.append((name_for_skip, "modal did not open"))
             _close_modal(driver)
             time.sleep(1)
-            break
+            continue
 
         modal_name = _strategy_name_from_modal(driver)
         strategy_name = pre_click_name or modal_name or "Unknown Strategy"
+        if strategy_name != name_for_skip:
+            attempted.add(strategy_name)  # keep both keys to be safe
         log(f"   Retrying: {strategy_name}")
-
-        if strategy_name in attempted:
-            log(f"   Already attempted '{strategy_name}' this run — stopping to avoid loop.")
-            _close_modal(driver)
-            break
-        attempted.add(strategy_name)
 
         # Force every action dropdown to a "Try Again" option (defaults usually do).
         try:
@@ -413,18 +427,20 @@ def retry_error_strategies(driver, wait):
         time.sleep(2)
         alert_text = _drain_alert(driver)
         if alert_text:
-            log(f"   ✖ Server rejected retry: {alert_text}")
+            log(f"   ✖ Server rejected retry for '{strategy_name}': {alert_text}")
             failed.append((strategy_name, alert_text))
             _close_modal(driver)
-            # If market is closed, no point retrying remaining strategies — same alert will fire.
+            # If market is closed, every subsequent retry would hit the same
+            # alert — stop early instead of burning iterations.
             if "market is closed" in alert_text.lower():
                 log("   Market is closed — stopping further retries.")
                 break
             time.sleep(1)
-        else:
-            log(f"   ✔ Proceed accepted for: {strategy_name}")
-            retried.append(strategy_name)
-            time.sleep(2)
+            continue
+
+        log(f"   ✔ Proceed accepted for: {strategy_name}")
+        retried.append(strategy_name)
+        time.sleep(2)
 
     return retried, failed
 
