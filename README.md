@@ -1,6 +1,6 @@
 # Tradetron – Kotak Neo V3 Token Regeneration
 
-Automates the daily broker token regeneration on [Tradetron](https://tradetron.tech). Logs in with your credentials, visits the regenerate-token URL, and confirms success — no manual clicks needed.
+Automates the daily broker token regeneration on [Tradetron](https://tradetron.tech). Logs in with your credentials, visits the regenerate-token URL twice, and confirms success — no manual clicks needed.
 
 Runs automatically at **8:45 AM IST every weekday** via GitHub Actions + cron-job.org.
 
@@ -10,8 +10,8 @@ Runs automatically at **8:45 AM IST every weekday** via GitHub Actions + cron-jo
 
 1. Opens Chrome (headless) and navigates to `https://tradetron.tech/login`
 2. Fills in email + password, solves the ALTCHA captcha automatically
-3. Visits your `REGEN_TOKEN_URL` (unique to your broker account)
-4. Tradetron regenerates the broker token and redirects to the dashboard
+3. Visits your `REGEN_TOKEN_URL` twice (unique to your broker account)
+4. Tradetron regenerates the broker token and redirects to the dashboard after each visit
 
 ---
 
