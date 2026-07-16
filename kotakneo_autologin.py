@@ -4,7 +4,7 @@ Tradetron – Kotak Neo V3 daily token regeneration.
 
 Flow:
   1. Log into tradetron.tech with email + password
-  2. Navigate to the regenerate-token URL — that's it
+  2. Navigate to the regenerate-token URL twice (second pass after redirect)
 
 Usage:
   python kotakneo_autologin.py            # headless (server / cron)
@@ -190,10 +190,14 @@ def run(headless=True):
         time.sleep(2)
         log(f"✔ Logged in — {driver.current_url}")
 
-        # ── Step 2: Hit the regenerate-token URL ───────────────────────────────
-        log(f"Opening: {regen_token_url}")
-        driver.get(regen_token_url)
-        time.sleep(3)
+        # ── Step 2: Hit the regenerate-token URL twice ─────────────────────────
+        # Tradetron regenerates on visit and redirects to the dashboard. A second
+        # pass after that redirect makes the renewal more reliable.
+        for attempt in range(1, 3):
+            log(f"Opening regenerate-token URL (attempt {attempt}/2): {regen_token_url}")
+            driver.get(regen_token_url)
+            time.sleep(3)
+            log(f"   After attempt {attempt}: {driver.current_url}")
 
         log(f"✔ Done — final URL: {driver.current_url}")
 
