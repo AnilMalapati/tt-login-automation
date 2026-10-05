@@ -205,8 +205,9 @@ Worst-case detection delay = 1 min from the moment a strategy enters Error-Execu
 |---|---|
 | `ModuleNotFoundError` | Run `pip install -r requirements.txt` inside your venv |
 | `SessionNotCreatedException` | `webdriver-manager` auto-downloads the right ChromeDriver — ensure it's in `requirements.txt` |
+| Login fails (`element not interactable`) | Tradetron’s new-theme welcome dialog (`#tt-welcome`) or cookie banner may be covering the form. Current scripts dismiss these automatically — pull latest `main` and re-run. Locally use `--headed` to confirm. |
 | Login fails | Run `--headed` locally to watch the browser and check for UI changes |
-| Token not regenerated | Verify `REGEN_TOKEN_URL` is set correctly — find it by clicking **Renew** on the Brokers & Exchanges page |
+| Token not regenerated | Verify `REGEN_TOKEN_URL` is set correctly — find it by clicking **Renew** on the Brokers & Exchanges page. On failure, download the `token-run-screenshots` Actions artifact. |
 | Weekend skip message | Use `--force` flag to bypass the weekday check during testing |
 | Scheduled job not running | GitHub's free-tier scheduler is unreliable — use cron-job.org (Step 5) to trigger it reliably |
 
