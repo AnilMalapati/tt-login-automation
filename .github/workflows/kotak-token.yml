@@ -34,3 +34,13 @@ jobs:
           TRADETRON_PASSWORD: ${{ secrets.TRADETRON_PASSWORD }}
           REGEN_TOKEN_URL: ${{ secrets.REGEN_TOKEN_URL }}
         run: python kotakneo_autologin.py --force
+
+      - name: Upload debug screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: token-run-screenshots
+          path: |
+            last_run.png
+            debug.png
+          if-no-files-found: ignore

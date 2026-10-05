@@ -33,14 +33,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
+from tt_login import log, tradetron_login
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 DEPLOYED_URL = "https://tradetron.tech/deployed-strategies"
-LOGIN_URL    = "https://tradetron.tech/login"
 IST          = pytz.timezone("Asia/Kolkata")
-
-
-def log(msg):
-    print(f"[{time.strftime('%X')}] {msg}", flush=True)
 
 
 def is_market_hours_ist():
@@ -86,83 +83,6 @@ def build_driver(headless=True):
         opts.binary_location = chrome_bin
 
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
-
-
-def tradetron_login(driver, wait, email, password):
-    log("Logging into Tradetron...")
-    driver.get(LOGIN_URL)
-
-    # Block NextRoll cookie popup
-    driver.execute_cdp_cmd("Network.enable", {})
-    driver.execute_cdp_cmd("Network.setBlockedURLs", {"urls": [
-        "*nextroll.com*", "*adroll.com*", "*nr-data.net*"
-    ]})
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": """
-        const _orig = Element.prototype.attachShadow;
-        Element.prototype.attachShadow = function(init) {
-            return _orig.call(this, { ...init, mode: 'open' });
-        };
-    """})
-    driver.get(LOGIN_URL)
-    time.sleep(3)
-
-    # Fill email
-    email_field = wait.until(EC.presence_of_element_located(
-        (By.CSS_SELECTOR, "input[type='email'], input[name='email']")
-    ))
-    email_field.clear()
-    email_field.send_keys(email)
-
-    # Fill password
-    pwd_field = wait.until(EC.presence_of_element_located(
-        (By.CSS_SELECTOR, "input[type='password']")
-    ))
-    pwd_field.clear()
-    pwd_field.send_keys(password)
-
-    # Handle ALTCHA captcha
-    log("   Handling ALTCHA captcha...")
-    for attempt in range(8):
-        result = driver.execute_script("""
-            var widget = document.querySelector('altcha-widget');
-            if (!widget) return 'no-widget';
-            if (typeof widget.verify === 'function') {
-                try { widget.verify(); return 'verify-called'; } catch(e) {}
-            }
-            var root = widget.shadowRoot || widget;
-            var cb = root.querySelector('input[type="checkbox"]');
-            if (!cb) return 'no-checkbox';
-            cb.click();
-            return 'clicked';
-        """)
-        log(f"   ALTCHA attempt {attempt+1}: {result}")
-        if result in ("clicked", "verify-called"):
-            break
-        time.sleep(1)
-
-    # Wait for ALTCHA to verify
-    for _ in range(30):
-        time.sleep(1)
-        state = driver.execute_script("""
-            var w = document.querySelector('altcha-widget');
-            if (!w) return 'no-widget';
-            var d = w.querySelector('[data-state]');
-            return d ? d.getAttribute('data-state') : (w.getAttribute('state') || 'pending');
-        """)
-        if state == "verified":
-            log("   ✔ ALTCHA verified.")
-            break
-
-    # Submit
-    time.sleep(0.5)
-    before_url = driver.current_url
-    wait.until(EC.element_to_be_clickable(
-        (By.CSS_SELECTOR, "button[type='submit']")
-    )).click()
-
-    WebDriverWait(driver, 20).until(lambda d: d.current_url != before_url)
-    time.sleep(2)
-    log(f"✔ Logged in — {driver.current_url}")
 
 
 def _drain_alert(driver):
