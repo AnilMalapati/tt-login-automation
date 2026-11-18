@@ -1,0 +1,43 @@
+name: Tradetron EOD Error-Execution Report
+
+on:
+  # Triggered externally by cron-job.org at 16:00 IST on weekdays.
+  # No GitHub `schedule:` on purpose (unreliable on the free tier, and it
+  # would send duplicate reports). See README "End-of-Day Error Report".
+  workflow_dispatch:
+
+jobs:
+  eod-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Chrome + ChromeDriver
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run EOD report
+        env:
+          TRADETRON_EMAIL: ${{ secrets.TRADETRON_EMAIL }}
+          TRADETRON_PASSWORD: ${{ secrets.TRADETRON_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python tradetron_eod_report.py --force
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eod-report-screenshots
+          path: eod_*.png
+          if-no-files-found: ignore
