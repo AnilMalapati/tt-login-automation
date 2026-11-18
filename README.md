@@ -199,6 +199,44 @@ Worst-case detection delay = 1 min from the moment a strategy enters Error-Execu
 
 ---
 
+## End-of-Day Error Report
+
+`tradetron_eod_report.py` sends **one Telegram message at 4:00 PM IST every weekday** listing every strategy that is in **Error-Execution** at that moment. It is read-only: it never clicks Manage / Proceed. It reuses the same login, scan logic and Telegram secrets as the error-retry script, so no new secrets are needed.
+
+- If something is in error: `🚨 Tradetron EOD report: 2 strategy(ies) in Error-Execution` followed by the names.
+- If nothing is: `✅ Tradetron EOD report: no strategies in Error-Execution`. A message is sent every run, so **no message at 4 PM means the report itself failed** (a `❌ … failed` message is sent when the script crashes; if even that is missing, check the Actions run).
+- It shows the state at 4 PM. A strategy that errored earlier and was fixed by the auto-retry will not appear.
+
+### Run locally
+
+```bash
+python tradetron_eod_report.py --force   # bypass weekday check (for testing)
+python tradetron_eod_report.py --headed  # show browser window
+```
+
+### Schedule via cron-job.org
+
+Create a third cronjob (same GitHub PAT as the other two):
+
+1. **CREATE CRONJOB**
+2. Fill in:
+   - **Title:** `Tradetron EOD Error Report`
+   - **URL:** `https://api.github.com/repos/YOUR_USERNAME/tt-login-automation/actions/workflows/eod-report.yml/dispatches`
+   - **Method:** `POST`
+   - **Request body:** `{"ref":"main"}`
+3. Under **Schedule:**
+   - Timezone: `Asia/Calcutta`
+   - Time: `16:00`
+   - Days: tick **Mon, Tue, Wed, Thu, Fri** only
+4. Under **Headers** add:
+   - `Authorization` → `Bearer YOUR_GITHUB_TOKEN`
+   - `Content-Type` → `application/json`
+5. Click **Save** → **Enable**
+
+Test it first with **Actions → Tradetron EOD Error-Execution Report → Run workflow**.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
