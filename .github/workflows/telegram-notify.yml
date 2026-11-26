@@ -1,0 +1,32 @@
+name: Telegram Notify
+
+# Sends a message to the configured Telegram chat. Used by the scheduled
+# Tradetron P&L reports (4 PM IST and 11:25 PM IST) so the bot token never
+# has to leave GitHub secrets. Run manually or via the API with a `message`.
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Text to send (plain text)'
+        required: true
+        type: string
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Send Telegram message
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
+            echo "Telegram secrets are not set"; exit 1
+          fi
+          resp=$(curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MESSAGE:0:4000}")
+          echo "$resp" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("ok" if d.get("ok") else d); sys.exit(0 if d.get("ok") else 1)'
