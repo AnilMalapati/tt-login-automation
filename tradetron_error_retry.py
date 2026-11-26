@@ -119,6 +119,9 @@ _NAME_BLOCKLIST = {
     "orders", "trades", "edit", "delete", "more", "info", "close", "try again",
     "all deployed", "deployed", "deployed strategies", "all", "live", "live offline",
     "live auto", "offline", "paper", "shared", "my strategies", "filter", "search",
+    "statistics", "subscriber queries", "subscribers", "queries", "logs", "pnl",
+    "performance", "history", "pause", "resume", "exit", "square off", "archive",
+    "multiplier", "capital", "deployed on", "broker", "mode",
 }
 
 # Trailing/leading arrows and bullets that link text often carries ("Details ▸").
@@ -304,6 +307,57 @@ def _goto_page(driver, page_num):
         return False
 
 
+def _row_info(driver, manage_link):
+    """Return {name, sid, text} for the strategy row that owns `manage_link`.
+
+    The title is the first line of the row's visible text that is not a UI label
+    (links like "Details", "Statistics", "Subscriber Queries" live in the same
+    row, so link text is NOT used). `sid` is the numeric strategy id found in the
+    row's links, which stays stable even if the name can't be read."""
+    info = driver.execute_script(
+        r"""
+        const blocklist = new Set(arguments[1]);
+        const clean = (s) => (s || '').replace(/ /g, ' ').replace(/\s+/g, ' ')
+            .replace(/^[\s▸▶►›»>→•·|:-]+|[\s▸▶►›»>→•·|:-]+$/g, '');
+        const looksLikeName = (s) => {
+            const t = clean(s);
+            if (t.length < 4 || t.length > 120) return false;
+            if (blocklist.has(t.toLowerCase())) return false;
+            if (/^[\d.,\s%₹+:/-]+$/.test(t)) return false;            // numbers, dates, times
+            if (/^(live|paper)[\s-]/i.test(t)) return false;           // mode/status badges
+            if (/error|manage|proceed/i.test(t) && t.length < 25) return false;
+            return true;
+        };
+        const manageCount = (root) => [...root.querySelectorAll('a,button,span')]
+            .filter(n => (n.textContent || '').trim() === 'Manage').length;
+        let el = arguments[0], row = null;
+        for (let depth = 0; depth < 12 && el; depth++) {
+            if (manageCount(el) > 1) break;          // spans more than one row
+            row = el;
+            const lines = (el.innerText || '').split('\n').map(clean).filter(Boolean);
+            if (lines.some(looksLikeName) && lines.length >= 4) break;   // enough of the row
+            el = el.parentElement;
+        }
+        if (!row) return {name: null, sid: null, text: ''};
+        const lines = (row.innerText || '').split('\n').map(clean).filter(Boolean);
+        const name = lines.find(looksLikeName) || null;
+        let sid = null;
+        for (const a of row.querySelectorAll('a[href]')) {
+            const m = (a.getAttribute('href') || '').match(/(\d{8,})/);
+            if (m) { sid = m[1]; break; }
+        }
+        return {name: name, sid: sid, text: lines.slice(0, 14).join(' | ').slice(0, 400)};
+        """,
+        manage_link,
+        list(_NAME_BLOCKLIST),
+    ) or {}
+    return {
+        "name": _clean_name(info.get("name")) or None,
+        "sid": info.get("sid"),
+        "text": info.get("text") or "",
+    }
+
+
 def _find_first_error_link_across_pages(driver, skip_names=None, max_pages=10):
     """Start at page 1 of deployed strategies, scan each page in order, and
     return the first (manage_link, strategy_name) whose name is NOT in
@@ -318,17 +372,18 @@ def _find_first_error_link_across_pages(driver, skip_names=None, max_pages=10):
 
     for page in range(1, max_pages + 1):
         for link in _find_error_manage_links(driver):
-            name = _strategy_name_near_manage_link(driver, link)
-            if not name:
-                _debug_row_context(driver, link)
-            name_key = name or "Unknown Strategy"
-            if name_key in skip_names:
+            info = _row_info(driver, link)
+            name = info["name"]
+            key = info["sid"] or name or "Unknown Strategy"
+            if key in skip_names or (name and name in skip_names):
                 continue
-            log(f"   Found Error-Execution on page {page}: {name or '(unnamed)'}")
-            return link, name
+            log(f"   Found Error-Execution on page {page}: {name or '(unnamed)'}"
+                f"{' [id ' + info['sid'] + ']' if info['sid'] else ''}")
+            log(f"      row text: {info['text']!r}")
+            return link, name, key
         if not _goto_page(driver, page + 1):
-            return None, None
-    return None, None
+            return None, None, None
+    return None, None, None
 
 
 def retry_error_strategies(driver, wait):
@@ -343,7 +398,7 @@ def retry_error_strategies(driver, wait):
     MAX_ITER = 25
 
     for _ in range(MAX_ITER):
-        manage_link, pre_click_name = _find_first_error_link_across_pages(
+        manage_link, pre_click_name, row_key = _find_first_error_link_across_pages(
             driver, skip_names=attempted
         )
         if manage_link is None:
@@ -357,6 +412,7 @@ def retry_error_strategies(driver, wait):
         # the click/modal/retry path raises, we won't pick the same one again
         # this run. The next cron tick will revisit anything still in error.
         name_for_skip = pre_click_name or "Unknown Strategy"
+        attempted.add(row_key)
         attempted.add(name_for_skip)
 
         try:
