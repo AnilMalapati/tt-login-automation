@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import datetime
+import html
 import os
 import sys
 import time
@@ -22,6 +23,8 @@ import requests
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    ElementNotInteractableException,
     NoAlertPresentException,
     TimeoutException,
     UnexpectedAlertPresentException,
@@ -65,6 +68,17 @@ def send_telegram(token, chat_id, message):
         log(f"   Telegram send failed: {e}")
 
 
+def _safe_click(driver, el):
+    """Normal click first; if the element is hidden/covered/not interactable,
+    fall back to a JS click instead of crashing the whole run."""
+    try:
+        el.click()
+    except ElementNotInteractableException:
+        driver.execute_script("arguments[0].click();", el)
+    except ElementClickInterceptedException:
+        driver.execute_script("arguments[0].click();", el)
+
+
 def build_driver(headless=True):
     opts = Options()
     if headless:
@@ -101,7 +115,19 @@ _NAME_BLOCKLIST = {
     "date", "time", "condition", "instrument", "instrument symbol",
     "qty", "pending quantity", "actions", "price", "amount",
     "status", "execution",
+    "details", "detail", "view", "view details", "view positions", "positions",
+    "orders", "trades", "edit", "delete", "more", "info", "close", "try again",
 }
+
+# Trailing/leading arrows and bullets that link text often carries ("Details ▸").
+_JUNK_CHARS = "▸▶►›»>→•·|:- \u00a0\t\r\n"
+
+
+def _clean_name(text):
+    """Trim UI glyphs (▸ › » …) from link text and collapse whitespace."""
+    if not text:
+        return ""
+    return " ".join(text.replace("\u00a0", " ").split()).strip(_JUNK_CHARS)
 
 
 def _looks_like_strategy_name(text):
@@ -118,33 +144,40 @@ def _looks_like_strategy_name(text):
 
 
 def _strategy_name_near_manage_link(driver, manage_link):
-    """Walk up the DOM from the Manage link looking for a strategy-title link
-    in the same row/card. This is the most reliable place to find the name
-    because it's literally what the user sees next to the Manage button."""
-    return driver.execute_script(
-        """
+    """Walk up the DOM from the Manage link looking for the strategy title in the
+    same row/card. Link text is cleaned of UI glyphs ("Details ▸" -> "Details")
+    and rejected if it is a generic UI label, so only a real title qualifies."""
+    name = driver.execute_script(
+        r"""
         const blocklist = new Set(arguments[1]);
+        const clean = (s) => (s || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ')
+            .replace(/^[\s▸▶►›»>→•·|:-]+|[\s▸▶►›»>→•·|:-]+$/g, '');
         const looksLikeName = (s) => {
-            if (!s) return false;
-            const t = s.trim();
+            const t = clean(s);
             if (t.length < 4 || t.length > 200) return false;
             if (blocklist.has(t.toLowerCase())) return false;
+            if (/^[\d.,\s%₹+-]+$/.test(t)) return false;   // numbers / amounts
             return true;
         };
         let el = arguments[0];
+        const manageCount = (root) => [...root.querySelectorAll('a,button,span')]
+            .filter(n => (n.textContent || '').trim() === 'Manage').length;
         for (let depth = 0; depth < 12 && el; depth++) {
-            // 1) Prefer anchors that look like strategy links
+            // Stop once the container spans more than one row: anything found
+            // above that point could belong to a different strategy.
+            if (manageCount(el) > 1) break;
+            // 1) Headings / title-like elements first: the real title is usually here
+            for (const h of el.querySelectorAll('h1,h2,h3,h4,h5,h6,.strategy-name,.strategy_name,[class*="strategy-title"],[class*="strategyName"],[class*="strategy_name"]')) {
+                const text = clean(h.textContent);
+                if (looksLikeName(text)) return text;
+            }
+            // 2) Then anchors that look like strategy links (and are not UI labels)
             for (const a of el.querySelectorAll('a')) {
                 const href = (a.getAttribute('href') || '').toLowerCase();
-                const text = (a.textContent || '').trim();
+                const text = clean(a.textContent);
                 if ((href.includes('strategy') || href.includes('deployed')) && looksLikeName(text)) {
                     return text;
                 }
-            }
-            // 2) Then any heading element in this container
-            for (const h of el.querySelectorAll('h1,h2,h3,h4,h5')) {
-                const text = (h.textContent || '').trim();
-                if (looksLikeName(text)) return text;
             }
             el = el.parentElement;
         }
@@ -153,6 +186,28 @@ def _strategy_name_near_manage_link(driver, manage_link):
         manage_link,
         list(_NAME_BLOCKLIST),
     )
+    return _clean_name(name) or None
+
+
+def _debug_row_context(driver, manage_link):
+    """Log what the row looks like when no name could be found, so the next run's
+    log shows the real DOM instead of guessing again."""
+    try:
+        info = driver.execute_script(
+            """
+            let el = arguments[0];
+            for (let i = 0; i < 6 && el.parentElement; i++) el = el.parentElement;
+            const links = [...el.querySelectorAll('a')].slice(0, 12)
+                .map(a => (a.textContent || '').trim().slice(0, 40) + ' -> ' + (a.getAttribute('href') || ''));
+            return {text: (el.innerText || '').slice(0, 400), links: links};
+            """,
+            manage_link,
+        )
+        log(f"   (name not found) row text: {info.get('text')!r}")
+        for l in info.get("links", []):
+            log(f"      link: {l}")
+    except Exception as e:
+        log(f"   (couldn't read row context: {e})")
 
 
 def _strategy_name_from_modal(driver):
@@ -161,13 +216,15 @@ def _strategy_name_from_modal(driver):
     be a th[colspan], a div with no class, or just inline text — so we walk
     every visible text node in the modal and pick the first plausible one."""
     return driver.execute_script(
-        """
+        r"""
         const blocklist = new Set(arguments[0]);
+        const clean = (s) => (s || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ')
+            .replace(/^[\s▸▶►›»>→•·|:-]+|[\s▸▶►›»>→•·|:-]+$/g, '');
         const looksLikeName = (s) => {
-            if (!s) return false;
-            const t = s.trim();
+            const t = clean(s);
             if (t.length < 4 || t.length > 200) return false;
             if (blocklist.has(t.toLowerCase())) return false;
+            if (/^[\d.,\s%₹+-]+$/.test(t)) return false;
             return true;
         };
         const modal = document.querySelector('.modal, .modal-dialog, [role="dialog"]');
@@ -175,7 +232,7 @@ def _strategy_name_from_modal(driver):
         const walker = document.createTreeWalker(modal, NodeFilter.SHOW_TEXT);
         let node;
         while ((node = walker.nextNode())) {
-            const text = (node.nodeValue || '').trim();
+            const text = clean(node.nodeValue);
             if (looksLikeName(text)) return text;
         }
         return null;
@@ -191,7 +248,7 @@ def _close_modal(driver):
         "//*[contains(@class,'modal') or contains(@class,'dialog')]//*[normalize-space(text())='×' or normalize-space(text())='X']",
     ):
         try:
-            driver.find_element(By.XPATH, xp).click()
+            _safe_click(driver, driver.find_element(By.XPATH, xp))
             return True
         except Exception:
             continue
@@ -248,6 +305,8 @@ def _find_first_error_link_across_pages(driver, skip_names=None, max_pages=10):
     for page in range(1, max_pages + 1):
         for link in _find_error_manage_links(driver):
             name = _strategy_name_near_manage_link(driver, link)
+            if not name:
+                _debug_row_context(driver, link)
             name_key = name or "Unknown Strategy"
             if name_key in skip_names:
                 continue
@@ -290,7 +349,7 @@ def retry_error_strategies(driver, wait):
         time.sleep(0.5)
 
         try:
-            manage_link.click()
+            _safe_click(driver, manage_link)
         except UnexpectedAlertPresentException:
             alert_text = _drain_alert(driver) or "(no text)"
             log(f"   ✖ Alert on Manage click for '{name_for_skip}': {alert_text}")
@@ -338,7 +397,7 @@ def retry_error_strategies(driver, wait):
             log(f"   (Couldn't normalize action dropdowns: {e})")
 
         try:
-            proceed_btn.click()
+            _safe_click(driver, proceed_btn)
         except UnexpectedAlertPresentException:
             pass
 
@@ -406,10 +465,10 @@ def main():
             parts = ["⚠️ <b>Tradetron Error-Execution Report</b>"]
             if retried:
                 parts.append("\n<b>Retried successfully:</b>")
-                parts.extend(f"• {s}" for s in retried)
+                parts.extend(f"• {html.escape(s)}" for s in retried)
             if failed:
                 parts.append("\n<b>Retry failed:</b>")
-                parts.extend(f"• {name} — {reason}" for name, reason in failed)
+                parts.extend(f"• {html.escape(name)} — {html.escape(str(reason))}" for name, reason in failed)
             parts.append(f"\n🕐 {now_str}")
             msg = "\n".join(parts)
 
@@ -433,7 +492,7 @@ def main():
         if telegram_token and telegram_chat:
             send_telegram(
                 telegram_token, telegram_chat,
-                f"❌ <b>Tradetron retry script crashed</b>\n<code>{str(e)[:300]}</code>",
+                f"❌ <b>Tradetron retry script crashed</b>\n<code>{html.escape(str(e)[:300])}</code>",
             )
         exit_code = 1
     finally:
