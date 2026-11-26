@@ -261,31 +261,44 @@ def _close_modal(driver):
 
 
 def _find_error_manage_links(driver):
-    error_manages = driver.find_elements(
-        By.XPATH,
-        "//*[contains(text(),'Error-Execution')]/following-sibling::*[contains(text(),'Manage')] | "
-        "//*[contains(text(),'Error-Execution')]/..//*[contains(text(),'Manage')]"
+    """Return the Manage controls of strategy rows whose status is exactly
+    'Error-Execution'.
+
+    Strict on purpose: the page also contains the text 'Error-Execution' in
+    filters/legends and 'Manage ...' entries in nav and Creator Hub menus. A
+    loose match picked those up when no strategy was actually in error and
+    reported 'modal did not open'. A match here must be a visible leaf element
+    reading exactly 'Error-Execution', outside nav/header/menus, whose nearest
+    enclosing row holds exactly one visible, exactly-'Manage' control."""
+    found = driver.execute_script(
+        r"""
+        const EXCL = 'nav, header, footer, select, option, [role="menu"], [role="listbox"], ' +
+                     '[role="navigation"], .dropdown-menu, .navbar, .sidebar, .modal';
+        const visible = (n) => !!(n.offsetWidth || n.offsetHeight || n.getClientRects().length);
+        const ok = (n) => visible(n) && !n.closest(EXCL);
+        const out = [];
+        for (const st of document.body.querySelectorAll('*')) {
+            if (st.children.length) continue;                         // leaf elements only
+            if ((st.textContent || '').trim() !== 'Error-Execution') continue;
+            if (!ok(st)) continue;
+            let el = st.parentElement;
+            for (let d = 0; d < 8 && el; d++) {
+                const manages = [...el.querySelectorAll('a,button,span')]
+                    .filter(n => (n.textContent || '').trim() === 'Manage' && ok(n));
+                if (manages.length > 1) break;                         // spans several rows
+                if (manages.length === 1) {
+                    // A real strategy row carries title, status, mode, links...;
+                    // a bare legend/filter next to a Manage link does not.
+                    const parts = (el.innerText || '').split(/[\n\t]/).map(x => x.trim()).filter(Boolean);
+                    if (parts.length >= 4) { if (!out.includes(manages[0])) out.push(manages[0]); break; }
+                }
+                el = el.parentElement;
+            }
+        }
+        return out;
+        """
     )
-    if not error_manages:
-        error_manages = driver.find_elements(
-            By.XPATH,
-            "//span[contains(@class,'status') and contains(text(),'Error')]"
-            "/following::a[contains(text(),'Manage')][1] | "
-            "//*[contains(text(),'Error-Execution')]/following::*[normalize-space(text())='Manage'][1]"
-        )
-    # Keep only Manage controls that are on screen and unique. A hidden Manage
-    # (e.g. the one that follows an "Error-Execution" filter/tab label) is not
-    # a strategy row and raises "element not interactable" when clicked.
-    visible, seen = [], set()
-    for el in error_manages:
-        try:
-            if not el.is_displayed() or el.id in seen:
-                continue
-            seen.add(el.id)
-            visible.append(el)
-        except Exception:
-            continue
-    return visible
+    return list(found or [])
 
 
 def _goto_page(driver, page_num):
@@ -358,6 +371,27 @@ def _row_info(driver, manage_link):
     }
 
 
+def _log_unmatched_error_labels(driver):
+    """If strict matching finds no rows but the page still shows visible
+    'Error-Execution' labels, say so: either they are filters/legends (fine) or
+    the row layout changed and a real error is being missed."""
+    try:
+        labels = driver.execute_script(
+            r"""
+            const vis = (n) => !!(n.offsetWidth || n.offsetHeight || n.getClientRects().length);
+            return [...document.body.querySelectorAll('*')]
+                .filter(n => !n.children.length && (n.textContent || '').trim() === 'Error-Execution' && vis(n))
+                .slice(0, 5)
+                .map(n => (n.parentElement ? n.parentElement.innerText : '').replace(/\s+/g, ' ').slice(0, 160));
+            """
+        )
+        if labels:
+            log(f"   (note: {len(labels)} visible 'Error-Execution' label(s) without a matching strategy row; "
+                f"context: {labels})")
+    except Exception:
+        pass
+
+
 def _find_first_error_link_across_pages(driver, skip_names=None, max_pages=10):
     """Start at page 1 of deployed strategies, scan each page in order, and
     return the first (manage_link, strategy_name) whose name is NOT in
@@ -381,6 +415,8 @@ def _find_first_error_link_across_pages(driver, skip_names=None, max_pages=10):
                 f"{' [id ' + info['sid'] + ']' if info['sid'] else ''}")
             log(f"      row text: {info['text']!r}")
             return link, name, key
+        if page == 1:
+            _log_unmatched_error_labels(driver)
         if not _goto_page(driver, page + 1):
             return None, None, None
     return None, None, None
