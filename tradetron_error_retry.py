@@ -117,6 +117,8 @@ _NAME_BLOCKLIST = {
     "status", "execution",
     "details", "detail", "view", "view details", "view positions", "positions",
     "orders", "trades", "edit", "delete", "more", "info", "close", "try again",
+    "all deployed", "deployed", "deployed strategies", "all", "live", "live offline",
+    "live auto", "offline", "paper", "shared", "my strategies", "filter", "search",
 }
 
 # Trailing/leading arrows and bullets that link text often carries ("Details ▸").
@@ -268,7 +270,19 @@ def _find_error_manage_links(driver):
             "/following::a[contains(text(),'Manage')][1] | "
             "//*[contains(text(),'Error-Execution')]/following::*[normalize-space(text())='Manage'][1]"
         )
-    return error_manages
+    # Keep only Manage controls that are on screen and unique. A hidden Manage
+    # (e.g. the one that follows an "Error-Execution" filter/tab label) is not
+    # a strategy row and raises "element not interactable" when clicked.
+    visible, seen = [], set()
+    for el in error_manages:
+        try:
+            if not el.is_displayed() or el.id in seen:
+                continue
+            seen.add(el.id)
+            visible.append(el)
+        except Exception:
+            continue
+    return visible
 
 
 def _goto_page(driver, page_num):
@@ -345,81 +359,92 @@ def retry_error_strategies(driver, wait):
         name_for_skip = pre_click_name or "Unknown Strategy"
         attempted.add(name_for_skip)
 
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", manage_link)
-        time.sleep(0.5)
-
         try:
-            _safe_click(driver, manage_link)
-        except UnexpectedAlertPresentException:
-            alert_text = _drain_alert(driver) or "(no text)"
-            log(f"   ✖ Alert on Manage click for '{name_for_skip}': {alert_text}")
-            failed.append((name_for_skip, alert_text))
-            if "market is closed" in alert_text.lower():
-                log("   Market is closed — stopping further retries.")
-                break
-            continue
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", manage_link)
+            time.sleep(0.5)
 
-        try:
-            proceed_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable(
-                    (By.XPATH, "//button[normalize-space(text())='Proceed']")
+            try:
+                _safe_click(driver, manage_link)
+            except UnexpectedAlertPresentException:
+                alert_text = _drain_alert(driver) or "(no text)"
+                log(f"   ✖ Alert on Manage click for '{name_for_skip}': {alert_text}")
+                failed.append((name_for_skip, alert_text))
+                if "market is closed" in alert_text.lower():
+                    log("   Market is closed — stopping further retries.")
+                    break
+                continue
+
+            try:
+                proceed_btn = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH, "//button[normalize-space(text())='Proceed']")
+                    )
                 )
-            )
-        except TimeoutException:
-            log(f"   ✖ Manage Positions modal did not appear for '{name_for_skip}'.")
-            failed.append((name_for_skip, "modal did not open"))
-            _close_modal(driver)
-            time.sleep(1)
-            continue
+            except TimeoutException:
+                log(f"   ✖ Manage Positions modal did not appear for '{name_for_skip}'.")
+                failed.append((name_for_skip, "modal did not open"))
+                _close_modal(driver)
+                time.sleep(1)
+                continue
 
-        modal_name = _strategy_name_from_modal(driver)
-        strategy_name = pre_click_name or modal_name or "Unknown Strategy"
-        if strategy_name != name_for_skip:
-            attempted.add(strategy_name)  # keep both keys to be safe
-        log(f"   Retrying: {strategy_name}")
+            modal_name = _strategy_name_from_modal(driver)
+            strategy_name = pre_click_name or modal_name or "Unknown Strategy"
+            if strategy_name != name_for_skip:
+                attempted.add(strategy_name)  # keep both keys to be safe
+            log(f"   Retrying: {strategy_name}")
 
-        # Force every action dropdown to a "Try Again" option (defaults usually do).
-        try:
-            dropdowns = driver.find_elements(
-                By.XPATH,
-                "//select[ancestor::*[contains(@class,'modal') or contains(@class,'dialog')]]"
-            )
-            for dropdown in dropdowns:
-                for opt in dropdown.find_elements(By.TAG_NAME, "option"):
-                    if "try" in opt.text.lower():
-                        driver.execute_script(
-                            "arguments[0].value = arguments[1];"
-                            "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));",
-                            dropdown, opt.get_attribute("value"),
-                        )
-                        break
+            # Force every action dropdown to a "Try Again" option (defaults usually do).
+            try:
+                dropdowns = driver.find_elements(
+                    By.XPATH,
+                    "//select[ancestor::*[contains(@class,'modal') or contains(@class,'dialog')]]"
+                )
+                for dropdown in dropdowns:
+                    for opt in dropdown.find_elements(By.TAG_NAME, "option"):
+                        if "try" in opt.text.lower():
+                            driver.execute_script(
+                                "arguments[0].value = arguments[1];"
+                                "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));",
+                                dropdown, opt.get_attribute("value"),
+                            )
+                            break
+            except Exception as e:
+                log(f"   (Couldn't normalize action dropdowns: {e})")
+
+            try:
+                _safe_click(driver, proceed_btn)
+            except UnexpectedAlertPresentException:
+                pass
+
+            # Give the server a moment to respond — it may surface a JS alert
+            # (e.g. "market is closed now") instead of accepting the retry.
+            time.sleep(2)
+            alert_text = _drain_alert(driver)
+            if alert_text:
+                log(f"   ✖ Server rejected retry for '{strategy_name}': {alert_text}")
+                failed.append((strategy_name, alert_text))
+                _close_modal(driver)
+                # If market is closed, every subsequent retry would hit the same
+                # alert — stop early instead of burning iterations.
+                if "market is closed" in alert_text.lower():
+                    log("   Market is closed — stopping further retries.")
+                    break
+                time.sleep(1)
+                continue
+
+            log(f"   ✔ Proceed accepted for: {strategy_name}")
+            retried.append(strategy_name)
+            time.sleep(2)
         except Exception as e:
-            log(f"   (Couldn't normalize action dropdowns: {e})")
-
-        try:
-            _safe_click(driver, proceed_btn)
-        except UnexpectedAlertPresentException:
-            pass
-
-        # Give the server a moment to respond — it may surface a JS alert
-        # (e.g. "market is closed now") instead of accepting the retry.
-        time.sleep(2)
-        alert_text = _drain_alert(driver)
-        if alert_text:
-            log(f"   ✖ Server rejected retry for '{strategy_name}': {alert_text}")
-            failed.append((strategy_name, alert_text))
-            _close_modal(driver)
-            # If market is closed, every subsequent retry would hit the same
-            # alert — stop early instead of burning iterations.
-            if "market is closed" in alert_text.lower():
-                log("   Market is closed — stopping further retries.")
-                break
-            time.sleep(1)
+            # One misbehaving row must not abort the run or hide the others.
+            log(f"   ✖ Unexpected error on '{name_for_skip}': {type(e).__name__}: {str(e)[:120]}")
+            failed.append((name_for_skip, f"{type(e).__name__} (see run log)"))
+            try:
+                _drain_alert(driver)
+                _close_modal(driver)
+            except Exception:
+                pass
             continue
-
-        log(f"   ✔ Proceed accepted for: {strategy_name}")
-        retried.append(strategy_name)
-        time.sleep(2)
 
     return retried, failed
 
