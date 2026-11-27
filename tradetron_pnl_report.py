@@ -70,6 +70,10 @@ def to_entries(api_rows):
     """Live Auto, non-archived deployments as simple dicts."""
     out = []
     for d in api_rows:
+        # Only deployments in the user's own account. Rows shared by other
+        # creators ("Shared" tab on the dashboard) carry is_shared=true.
+        if d.get("is_shared"):
+            continue
         status = str(d.get("status") or "")
         dtype = str(d.get("deployment_type") or "").upper()
         if status.lower() == "archived":
@@ -171,11 +175,26 @@ def build_message(entries, scope, now_str):
     return "\n".join(lines)
 
 
+def _chunks(text, limit=3800):
+    """Split on blank lines so no message exceeds Telegram's 4096-char limit."""
+    parts, cur = [], ""
+    for block in text.split("\n\n"):
+        if cur and len(cur) + len(block) + 2 > limit:
+            parts.append(cur)
+            cur = block
+        else:
+            cur = f"{cur}\n\n{block}" if cur else block
+    if cur:
+        parts.append(cur)
+    return parts
+
+
 def telegram(token, chat, text):
-    r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                      data={"chat_id": chat, "text": text[:4000]}, timeout=15)
-    if r.status_code != 200:
-        raise RuntimeError(f"Telegram error HTTP {r.status_code}")
+    for part in _chunks(text):
+        r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                          data={"chat_id": chat, "text": part[:4096]}, timeout=15)
+        if r.status_code != 200:
+            raise RuntimeError(f"Telegram error HTTP {r.status_code}")
 
 
 def main():
@@ -205,7 +224,9 @@ def main():
         tradetron_login(driver, wait, email, password)
         api_rows = fetch_deployments(driver)
         entries = to_entries(api_rows)
-        log(f"Read {len(api_rows)} deployments, {len(entries)} live auto non-archived.")
+        shared = sum(1 for d in api_rows if d.get("is_shared"))
+        log(f"Read {len(api_rows)} deployments ({shared} shared, excluded), "
+            f"{len(entries)} own live auto non-archived.")
         if not api_rows:
             raise RuntimeError("the deployments API returned no rows; no report sent")
         now_str = datetime.datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
