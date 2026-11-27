@@ -10,6 +10,11 @@ on:
         description: 'Text to send (plain text)'
         required: true
         type: string
+      parse_mode:
+        description: 'Optional Telegram parse mode (HTML). Empty = plain text'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   notify:
@@ -21,12 +26,15 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MESSAGE: ${{ inputs.message }}
+          PARSE_MODE: ${{ inputs.parse_mode }}
         run: |
           set -euo pipefail
           if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
             echo "Telegram secrets are not set"; exit 1
           fi
-          resp=$(curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${MESSAGE:0:4000}")
+          args=(--data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=${MESSAGE:0:4000}")
+          if [ -n "${PARSE_MODE}" ]; then
+            args+=(--data-urlencode "parse_mode=${PARSE_MODE}" --data-urlencode "disable_web_page_preview=true")
+          fi
+          resp=$(curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" "${args[@]}")
           echo "$resp" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("ok" if d.get("ok") else d); sys.exit(0 if d.get("ok") else 1)'
