@@ -95,46 +95,43 @@ def parse_rows(driver):
     return out
 
 
+def _schema(obj, path="$", out=None, depth=0):
+    """Field paths and types only. NEVER values: the repo is public and so are
+    its Actions logs."""
+    out = [] if out is None else out
+    if depth > 6 or len(out) > 220:
+        return out
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            _schema(v, f"{path}.{k}", out, depth + 1)
+    elif isinstance(obj, list):
+        out.append(f"{path}[] len={len(obj)}")
+        for v in obj[:1]:
+            _schema(v, f"{path}[]", out, depth + 1)
+    else:
+        out.append(f"{path}: {type(obj).__name__}")
+    return out
+
+
 def log_page_shape(driver):
-    """Debug aid: print what the page looks like so parse_rows can be fixed
-    from the workflow log alone."""
-    body = driver.find_element(By.TAG_NAME, "body").text
-    log(f"[shape] url={driver.current_url} body_chars={len(body)}")
-    for sel in ("table", "table tbody tr", "tr", "[role=row]", ".card", "[class*=strategy]"):
-        log(f"[shape] {sel}: {len(driver.find_elements(By.CSS_SELECTOR, sel))}")
-    log("[shape] body text (first 2500 chars):")
-    for ln in body[:2500].splitlines():
-        log("[shape|] " + ln)
-    time.sleep(6)
-    try:
-        urls = driver.execute_script(
-            "return performance.getEntriesByType('resource')"
-            ".filter(e=>['xmlhttprequest','fetch'].includes(e.initiatorType))"
-            ".map(e=>e.name.split('?')[0]);")
-        for u in sorted(set(urls)):
-            log("[shape] xhr: " + u)
-    except Exception as e:
-        log(f"[shape] resource list failed: {e}")
+    """Debug aid: prints the SHAPE (names and types, no values) of the
+    dashboard's own JSON endpoints."""
+    import json as _json
     for ep in ("/api/deployments", "/api/deployments/summary"):
         try:
             res = driver.execute_async_script(
                 "const done=arguments[arguments.length-1];"
                 "fetch(arguments[0],{credentials:'include',headers:{'Accept':'application/json'}})"
-                ".then(async r=>done({status:r.status,body:(await r.text()).slice(0,6000)}))"
+                ".then(async r=>done({status:r.status,body:await r.text()}))"
                 ".catch(e=>done({status:-1,body:String(e)}));", ep)
-            log(f"[api] {ep} status={res.get('status')} len={len(res.get('body',''))}")
-            log("[api] " + re.sub(r"\s+", " ", res.get("body", ""))[:3500])
+            log(f"[api] {ep} status={res.get('status')} bytes={len(res.get('body',''))}")
+            try:
+                for ln in _schema(_json.loads(res["body"])):
+                    log("[api|] " + ln)
+            except Exception as e:
+                log(f"[api] not json: {e}")
         except Exception as e:
             log(f"[api] {ep} failed: {e}")
-    els = driver.find_elements(By.XPATH, "//*[contains(text(),'Live Auto') or contains(text(),'LIVE AUTO')]")
-    log(f"[shape] elements containing 'Live Auto': {len(els)}")
-    for el in els[:2]:
-        try:
-            row = el.find_element(By.XPATH, "ancestor::tr[1] | ancestor::*[contains(@class,'row') or contains(@class,'card')][1]")
-            html = row.get_attribute("outerHTML") or ""
-            log("[shape] row outerHTML (first 1500): " + re.sub(r"\s+", " ", html)[:1500])
-        except Exception as e:
-            log(f"[shape] no ancestor row: {e}")
 
 
 def collect(driver, dump=False):
