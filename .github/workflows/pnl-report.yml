@@ -1,5 +1,8 @@
 name: Tradetron PNL Report
 
+# Public repo: this workflow deliberately uploads no artifacts and logs no
+# strategy names or P&L. The report goes to Telegram only.
+
 on:
   # Triggered externally by cron-job.org (no GitHub `schedule:` on purpose,
   # same as eod-report.yml):
@@ -39,14 +42,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SCOPE: ${{ inputs.scope }}
-        run: python tradetron_pnl_report.py --force --dump --scope "$SCOPE"
-
-      - name: Upload debug files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pnl-report-debug
-          path: |
-            pnl_debug.txt
-            pnl_debug.png
-          if-no-files-found: ignore
+        run: python tradetron_pnl_report.py --force --scope "$SCOPE"
