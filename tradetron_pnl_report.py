@@ -115,6 +115,17 @@ def log_page_shape(driver):
             log("[shape] xhr: " + u)
     except Exception as e:
         log(f"[shape] resource list failed: {e}")
+    for ep in ("/api/deployments", "/api/deployments/summary"):
+        try:
+            res = driver.execute_async_script(
+                "const done=arguments[arguments.length-1];"
+                "fetch(arguments[0],{credentials:'include',headers:{'Accept':'application/json'}})"
+                ".then(async r=>done({status:r.status,body:(await r.text()).slice(0,6000)}))"
+                ".catch(e=>done({status:-1,body:String(e)}));", ep)
+            log(f"[api] {ep} status={res.get('status')} len={len(res.get('body',''))}")
+            log("[api] " + re.sub(r"\s+", " ", res.get("body", ""))[:3500])
+        except Exception as e:
+            log(f"[api] {ep} failed: {e}")
     els = driver.find_elements(By.XPATH, "//*[contains(text(),'Live Auto') or contains(text(),'LIVE AUTO')]")
     log(f"[shape] elements containing 'Live Auto': {len(els)}")
     for el in els[:2]:
