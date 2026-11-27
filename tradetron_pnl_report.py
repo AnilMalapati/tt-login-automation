@@ -95,9 +95,31 @@ def parse_rows(driver):
     return out
 
 
+def log_page_shape(driver):
+    """Debug aid: print what the page looks like so parse_rows can be fixed
+    from the workflow log alone."""
+    body = driver.find_element(By.TAG_NAME, "body").text
+    log(f"[shape] url={driver.current_url} body_chars={len(body)}")
+    for sel in ("table", "table tbody tr", "tr", "[role=row]", ".card", "[class*=strategy]"):
+        log(f"[shape] {sel}: {len(driver.find_elements(By.CSS_SELECTOR, sel))}")
+    log("[shape] body text (first 2500 chars):")
+    for ln in body[:2500].splitlines():
+        log("[shape|] " + ln)
+    els = driver.find_elements(By.XPATH, "//*[contains(text(),'Live Auto') or contains(text(),'LIVE AUTO')]")
+    log(f"[shape] elements containing 'Live Auto': {len(els)}")
+    for el in els[:2]:
+        try:
+            row = el.find_element(By.XPATH, "ancestor::tr[1] | ancestor::*[contains(@class,'row') or contains(@class,'card')][1]")
+            html = row.get_attribute("outerHTML") or ""
+            log("[shape] row outerHTML (first 1500): " + re.sub(r"\s+", " ", html)[:1500])
+        except Exception as e:
+            log(f"[shape] no ancestor row: {e}")
+
+
 def collect(driver, dump=False):
     driver.get(DEPLOYED_URL)
     time.sleep(5)
+    log_page_shape(driver)
     rows, texts = [], []
     for page in range(1, MAX_PAGES + 1):
         texts.append(f"=== page {page} ===\n" + driver.find_element(By.TAG_NAME, "body").text)
