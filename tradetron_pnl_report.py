@@ -105,6 +105,16 @@ def log_page_shape(driver):
     log("[shape] body text (first 2500 chars):")
     for ln in body[:2500].splitlines():
         log("[shape|] " + ln)
+    time.sleep(6)
+    try:
+        urls = driver.execute_script(
+            "return performance.getEntriesByType('resource')"
+            ".filter(e=>['xmlhttprequest','fetch'].includes(e.initiatorType))"
+            ".map(e=>e.name.split('?')[0]);")
+        for u in sorted(set(urls)):
+            log("[shape] xhr: " + u)
+    except Exception as e:
+        log(f"[shape] resource list failed: {e}")
     els = driver.find_elements(By.XPATH, "//*[contains(text(),'Live Auto') or contains(text(),'LIVE AUTO')]")
     log(f"[shape] elements containing 'Live Auto': {len(els)}")
     for el in els[:2]:
