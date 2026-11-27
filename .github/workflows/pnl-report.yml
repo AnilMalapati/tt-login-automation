@@ -1,0 +1,52 @@
+name: Tradetron PNL Report
+
+on:
+  # Triggered externally by cron-job.org (no GitHub `schedule:` on purpose,
+  # same as eod-report.yml):
+  #   16:00 IST Mon-Fri  -> scope=all
+  #   23:25 IST Mon-Fri  -> scope=mcx
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'all = NFO/BFO first then MCX, mcx = MCX only'
+        required: true
+        default: 'all'
+        type: choice
+        options: [all, mcx]
+
+jobs:
+  pnl-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Chrome + ChromeDriver
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run PNL report
+        env:
+          TRADETRON_EMAIL: ${{ secrets.TRADETRON_EMAIL }}
+          TRADETRON_PASSWORD: ${{ secrets.TRADETRON_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SCOPE: ${{ inputs.scope }}
+        run: python tradetron_pnl_report.py --force --dump --scope "$SCOPE"
+
+      - name: Upload debug files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnl-report-debug
+          path: |
+            pnl_debug.txt
+            pnl_debug.png
+          if-no-files-found: ignore
